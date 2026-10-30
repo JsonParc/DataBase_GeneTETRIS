@@ -1,0 +1,36 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Processing Sketch",
+			"type": "shell",
+			"command": "\"C:\\Program Files\\Processing\\Processing.exe\"",
+			"args": ["\"${workspaceFolder}\\TetrisAI.pde\""],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "new"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Open in Processing IDE",
+			"type": "shell",
+			"command": "\"C:\\Program Files\\Processing\\Processing.exe\"",
+			"args": ["\"${workspaceFolder}\""],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "new"
+			},
+			"problemMatcher": []
+		}
+	]
+}

@@ -1,0 +1,2 @@
+# 공통 시조 유전자 파일은 SHA-256으로 검증하므로 줄바꿈 변환(CRLF)을 막는다
+data/founder_genomes_v*.csv binary
