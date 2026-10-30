@@ -1,4 +1,4 @@
-// 기록 보존용 불변 스냅샷
+// 기록 보존용 불변 스냅샷 
 // Tetris.clone()과 달리 새 Tetris 객체를 만들지 않으므로 uniqueID를 소비하지 않으며,
 // 원본 개체의 ID·가문·점수·통계·가중치를 스냅샷 시점 그대로 보존한다.
 class TetrisRecord {
