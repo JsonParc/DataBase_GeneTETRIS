@@ -15,6 +15,7 @@ class TetrisRecord {
   final int tripleClears;
   final int piecesPlaced;
   final boolean isFinal;  // 개체 사망 후(게임 종료 후) 찍힌 스냅샷인지
+  final long pieceSeed;   // 이 게임의 블록 순서 시드
 
   final int iNodes, hNodes, oNodes, hLayers;
   final float[][][] weights;  // [layer][row][col]
@@ -33,6 +34,7 @@ class TetrisRecord {
     tripleClears = t.triple_clears;
     piecesPlaced = t.pieces_placed;
     isFinal = t.dead;
+    pieceSeed = t.pieceSeed;
 
     iNodes = t.brain.iNodes;
     hNodes = t.brain.hNodes;

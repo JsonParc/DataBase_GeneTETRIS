@@ -19,7 +19,12 @@ class Tetris {
   int parentBID = 0;                // CROSSOVER: 두 번째 부모 (0 = 없음)
   int cloneSourceID = 0;            // ELITE_CLONE: 복제 원본 (0 = 없음)
 
-  //GAME STATE VARIABLES    
+  //BLOCK SEQUENCE VARIABLES (블록 순서 전용 난수: 유전 연산용 random()과 분리되어 시드만으로 순서가 재현됨)
+  long pieceSeed = 0;
+  java.util.Random pieceRng;
+  int[] pieceAppear = new int[PIECE_NAMES.length];  // 블록 종류별 출현 수 (다음 블록으로 뽑힌 것 포함)
+
+  //GAME STATE VARIABLES
     int[][] current_tet;
     int[][] next_tet;
     int rotation_idx;
@@ -39,16 +44,15 @@ class Tetris {
     
     boolean last_clear_tetris = false;
     
-    Tetris() {
-        this(0);
-    }
-    
-    Tetris(int spec) {
-        this(spec, null);
+    Tetris() {  // 사람 플레이용: 매번 다른 블록 순서
+        this(0, null, System.nanoTime());
     }
 
-    // startBrain != null: 시조처럼 정해진 유전자로 시작 (첫 수 계산 전에 적용되므로 무작위 신경망을 거치지 않음)
-    Tetris(int spec, NeuralNet startBrain) {
+    // startBrain: 이 개체의 유전자 (첫 수 계산 전에 적용되므로 무작위 신경망으로 첫 수를 두지 않음)
+    // seed: 이 게임의 블록 순서 시드 (pieceSeedFor()로 실험 시드에서 유도)
+    Tetris(int spec, NeuralNet startBrain, long seed) {
+        pieceSeed = seed;
+        pieceRng = new java.util.Random(seed);
         init_game();
         uniqueID = nextUniqueID++;  // 고유 ID 할당
         if(!HUMAN_PLAY) {
@@ -232,7 +236,9 @@ class Tetris {
     }
     
     int[][] new_tet() {
-        return copy_2d(tetrominos[(int)random(tetrominos.length)]);
+        int idx = pieceRng.nextInt(tetrominos.length);
+        pieceAppear[idx]++;
+        return copy_2d(tetrominos[idx]);
     }
     
     int[] copy_1d(int[] array) {
@@ -255,27 +261,28 @@ class Tetris {
     
     // 세대교체용 우수 개체 복제: 새 개체이므로 새 uniqueID를 소비한다.
     // 단순 기록 보존에는 사용하지 말 것 (TetrisRecord 사용)
-    Tetris clone() {  //clone the Tetris
-       Tetris clone = new Tetris(species_id);
-       clone.brain = brain.clone();
+    Tetris clone(long seed) {  //clone the Tetris
+       Tetris clone = new Tetris(species_id, brain.clone(), seed);
        clone.birthGeneration = birthGeneration + 1;
        clone.birthType = "ELITE_CLONE";
        clone.cloneSourceID = uniqueID;
        return clone;
     }
-    Tetris crossover(Tetris parent) {  //crossover the Tetris with another Tetris
+    Tetris crossover(Tetris parent, long seed) {  //crossover the Tetris with another Tetris
        // 부모 중 더 높은 점수를 가진 쪽의 species_id 상속 (동점이면 parent 쪽)
        int inherited_species = (score > parent.score) ? species_id : parent.species_id;
-       Tetris child = new Tetris(inherited_species);
-       child.brain = brain.crossover(parent.brain);
+       Tetris child = new Tetris(inherited_species, brain.crossover(parent.brain), seed);
        child.birthGeneration = birthGeneration + 1;
        child.birthType = "CROSSOVER";
        child.parentAID = uniqueID;         // 첫 번째 select_parent() 결과
        child.parentBID = parent.uniqueID;  // 두 번째 select_parent() 결과
        return child;
     }
-    void mutate() {  //mutate the Tetris brain
+    void mutate() {  //mutate the Tetris brain (태어난 직후, 첫 블록을 놓기 전에만 호출)
          brain.mutate(mutation_rate);
+         // 첫 블록의 이동 계획을 돌연변이된 신경망으로 다시 계산 (이전에는 돌연변이 전 신경망의 계획을 사용했음)
+         moves_to_make = find_best_move();
+         move_itterator = 0;
     }
     
     float score_move(float terrain_height, float lines_cleared, float max_height, float min_height, float holes) {

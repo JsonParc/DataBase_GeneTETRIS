@@ -8,7 +8,7 @@ final int HIDDEN_NODES = 4;
 
 final int POPULATION_SIZE = 200;
 
-final String PROGRAM_VERSION = "2.0.0";
+final String PROGRAM_VERSION = "2.1.0";
 
 // ── 공통 시조 유전자 (모든 팀원·모든 실행이 같은 값으로 시작) ──
 // 일반 실행은 data/<FOUNDER_GENOME_FILE>을 읽기만 하며, 파일의 SHA-256이 아래 값과 다르면 시작하지 않는다.
@@ -18,8 +18,21 @@ final String FOUNDER_GENOME_SHA256 = "6fd10017ed2731d85867685181e3925a4c48bd78c7
 // true: 시뮬레이션 대신 새 시조 유전자 파일을 한 번 생성하고 멈춘다 (새 시조 집합을 의도적으로 만들 때만)
 final boolean GENERATE_FOUNDER_GENOMES = false;
 
+// ── 실험 설정 기본값 (ASK_SETTINGS_ON_START = true면 시작할 때 설정 창에서 바꿀 수 있음) ──
+final boolean ASK_SETTINGS_ON_START = true;
 // run_id 앞에 붙는 실행자 이름 (영문/숫자, 예: "DONGHYUN"). 비워 두면 "RUN"
 final String RUN_OWNER = "";
+// 블록 난수 시드 (정수 문자열, 예: "12345"). 비워 두면 실행마다 무작위로 정하고 CSV에 기록
+final String DEFAULT_BLOCK_SEED = "";
+// 이 세대까지 저장하면 실험을 끝냄 (0 = 무제한)
+final int DEFAULT_MAX_GENERATIONS = 0;
+// true: 같은 세대의 모든 개체가 같은 블록 순서로 플레이 (공정 비교) / false: 개체마다 다른 순서 (원본 방식)
+final boolean DEFAULT_SHARED_PIECES = false;
+
+// 화면 한 프레임당 시뮬레이션 단계 수 (+/- 키로 1~64배 조절, 결과에는 영향 없음)
+int simSpeed = 4;
+final int MAX_SIM_SPEED = 64;
+boolean experimentFinished = false;  // 최대 세대에 도달해 실험이 끝났는지
 
 // 전체 개체 화면 한 페이지의 최대 격자 크기 (최대 40개씩, 200개는 5페이지)
 final int MULTI_MAX_COLS = 10;
@@ -64,6 +77,8 @@ final int[][][] tetrominos = {
             {{7, 7},
             {7, 7}}
           };
+// tetrominos 순서와 같은 블록 이름 (block_usage.csv 컬럼 이름)
+final String[] PIECE_NAMES = {"T", "S", "Z", "J", "L", "I", "O"};
           
 final color[] colors = { color(0,0,0), color(255,0,0), color(0,255,0), color(0,0,255), color(255,255,0), color(255,0,255), color(0, 255,255), color(255,255,255) };
 
@@ -105,6 +120,22 @@ void setup() {
         }
         println("[Founders] 고정 시조 유전자 로드: " + FOUNDER_SET_ID + " (" + founderGenomes.familyCount + " x " + founderGenomes.genesPerFamily()
                 + "), SHA-256 " + founderGenomes.sha256);
+
+        // 실험 설정 (시드·최대 세대). 시조 파일 검증을 통과한 뒤에 묻는다
+        if(ASK_SETTINGS_ON_START) {
+          if(!askExperimentSettings()) {
+            println("[Settings] 설정 창에서 취소하여 종료합니다.");
+            exit();
+            return;
+          }
+        } else {
+          applyDefaultSettings();
+        }
+        // 유전 연산(부모 선택·교차·돌연변이)용 random()도 같은 시드에서 시작 → 실행 전체가 재현됨
+        randomSeed(blockSeed);
+        println("[Settings] 블록 난수 시드 " + blockSeed + " (" + pieceSeedMode() + "), 최대 세대 "
+                + (maxGenerations == 0 ? "무제한" : str(maxGenerations)));
+
         pop = new Population(founderGenomes);
         validateFounderPopulation(pop);
         exporter = new CsvExporter(pop, founderGenomes);
@@ -155,23 +186,61 @@ void draw() {
            player = new Tetris(); 
         }
     } else {
-      if(pop.is_done()) {
+      if(pop == null) return;  // 설정 창 취소로 종료 중
+      if(experimentFinished) {
+          pop.show();  // 실험 종료: 마지막 세대 화면 유지
+      } else if(pop.is_done()) {
           // 세대 종료: 최종 점수로 역대 기록 확정 → CSV 저장 → 저장 성공 시에만 세대교체
           checkAndSaveNewRecord();
           if(exporter.exportGeneration(pop)) {
               int new_highscore = pop.find_best_tetris().score;
               if(new_highscore > highscore)
                   highscore = new_highscore;
-              pop.natural_selection();
+              if(maxGenerations > 0 && pop.gen >= maxGenerations) {
+                  finishExperiment();
+                  pop.show();
+              } else {
+                  pop.natural_selection();
+              }
           } else {
               pop.show();  // 저장 실패: 다음 세대로 넘어가지 않고 재시도 대기
           }
       } else{
-          pop.update();
+          // 속도 배수만큼 진행 (세대가 끝나면 즉시 멈추고 다음 프레임에서 저장)
+          for(int s = 0; s < simSpeed && !pop.is_done(); s++) {
+              pop.update();
+          }
           pop.show();
       }
     }
     show();
+    if(experimentFinished) show_finished_banner();
+}
+
+// 최대 세대 도달: 실험 요약 확정 + 역대 최고 기록 JSON 저장. 화면은 유지하고 ESC로 종료
+void finishExperiment() {
+    experimentFinished = true;
+    exporter.finish("COMPLETED");
+    saveBestAI();
+    println("[Experiment] 최대 세대 " + maxGenerations + " 도달 - 실험 종료 (run " + exporter.runId + ")");
+}
+
+void show_finished_banner() {
+    noStroke();
+    fill(0, 90, 0, 220);
+    rect(0, height - 100, width, 50);
+    fill(255);
+    textAlign(LEFT, CENTER);
+    textSize(18);
+    text("EXPERIMENT COMPLETE: " + maxGenerations + " generations saved   |   Best score " + exporter.bestScore
+         + " (ID " + exporter.bestIndividualId + ", gen " + exporter.bestGeneration + ")   |   ESC: exit", 20, height - 75);
+    stroke(0);
+}
+
+// 창 닫기·ESC 등 어떤 방식으로 종료해도 실험 요약(experiments.csv)의 상태를 확정
+public void dispose() {
+    if(exporter != null && !exporter.finished) exporter.finish("STOPPED");
+    super.dispose();
 }
 
 void show() {
@@ -214,6 +283,7 @@ void show() {
         text("All-Time: "+allTimeHighScore, 420, 25);
         text("Alive: " + countAlive() + "/" + pop.tetris_pop.length, 570, 25);
         text("On screen ID: " + pop.best_tetris.uniqueID + " (" + founderName(pop.best_tetris.species_id) + ")", 720, 25);
+        text("Speed x" + simSpeed, 1000, 25);
     }
 }
 
@@ -284,6 +354,15 @@ void show_single_view_info() {
     textSize(14);
     text("SPACE: multi-view   S: save record   ESC: save & exit", 500, 540);
     text("E: CSV status / retry   P: in-progress snapshot (not final)", 500, 560);
+    text("+/-: speed (now x" + simSpeed + ")", 500, 580);
+
+    // 실험 설정 (왼쪽 아래)
+    fill(200);
+    textSize(14);
+    text("Block seed: " + blockSeed, 20, 470);
+    text("Piece order: " + (sharedPieces ? "same for whole generation" : "different per individual"), 20, 490);
+    text("This game's seed: " + rep.pieceSeed, 20, 510);
+    text("Max generation: " + (maxGenerations == 0 ? "unlimited" : str(maxGenerations)), 20, 530);
 }
 
 int countAlive() {
@@ -329,26 +408,16 @@ void checkAndSaveNewRecord() {
     }
 }
 
-String getNextFilename() {
-    // data 폴더에서 기존 파일들을 확인하여 다음 버전 번호 결정
-    String baseName = "best_ai";
-    String extension = ".json";
-    
-    // 기본 파일이 있는지 확인
-    File baseFile = new File(dataPath(baseName + extension));
-    if (!baseFile.exists()) {
-        return baseName + extension;
-    }
-    
-    // 버전 파일들 확인
-    int version = 1;
-    File versionFile;
-    do {
-        versionFile = new File(dataPath(baseName + version + extension));
-        version++;
-    } while (versionFile.exists());
-    
-    return baseName + (version - 1) + extension;
+// 기록 파일 경로: exports/<run_id>/best_ai/gen0003_id000512_score41800_FINAL.json
+// 파일 이름만 보고 어느 실행·몇 세대·어떤 개체·몇 점인지 알 수 있게 한다. 같은 이름이 있으면 _2, _3…
+File bestAIFile(TetrisRecord best) {
+    File dir = new File(exporter.runDir, "best_ai");
+    String base = "gen" + nf(best.generation, 4) + "_id" + nf(best.individualId, 6) + "_score" + best.score
+                  + (best.isFinal ? "_FINAL" : "_INPROGRESS");
+    File f = new File(dir, base + ".json");
+    int suffix = 2;
+    while(f.exists()) f = new File(dir, base + "_" + suffix++ + ".json");
+    return f;
 }
 
 void saveBestAI() {
@@ -378,6 +447,8 @@ void saveBestAI() {
     aiData.setString("family_name", familyName(best.familyId));
     aiData.setBoolean("is_final", best.isFinal);
     if(exporter != null) aiData.setString("run_id", exporter.runId);
+    aiData.setString("block_seed", str(blockSeed));        // long은 JSON 정수 정밀도 문제를 피하려고 문자열로 저장
+    aiData.setString("game_piece_seed", str(best.pieceSeed));
     aiData.setString("timestamp", year() + "-" + month() + "-" + day() + "_" + hour() + "-" + minute() + "-" + second());
     aiData.setString("record_type", "ALL_TIME_HIGH_SCORE");
     
@@ -412,16 +483,16 @@ void saveBestAI() {
     
     aiData.setJSONObject("brain", brainData);
     
-    // 버전 관리로 파일 저장
-    String filename = getNextFilename();
-    saveJSONObject(aiData, "data/" + filename);
-    
-    // 기본 파일도 업데이트 (BestAI 호환성을 위해)
+    // 실행 폴더 안에 세대·개체·점수가 드러나는 이름으로 저장
+    File saved = bestAIFile(best);
+    saveJSONObject(aiData, saved.getAbsolutePath());
+
+    // 기본 파일도 업데이트 (BestAI 호환성을 위해, 항상 가장 최근 저장본)
     saveJSONObject(aiData, "data/best_ai.json");
-    
+
     hasUnsavedRecord = false; // 저장 완료 플래그
-    
-    println("Best AI saved to " + filename);
+
+    println("Best AI saved to exports/" + exporter.runId + "/best_ai/" + saved.getName());
     println("Score: " + best.score + ", Generation: " + best.generation + ", ID: " + best.individualId + ", " + familyName(best.familyId));
 }
 
@@ -451,6 +522,16 @@ void keyPressed() {
   if(key == CODED && !HUMAN_PLAY && SHOW_ALL) {
     if(keyCode == LEFT) pop.view_page--;
     if(keyCode == RIGHT) pop.view_page++;  // 범위는 그릴 때 보정
+  }
+
+  if(!HUMAN_PLAY && pop == null) return;  // 설정 창 취소로 종료 중
+
+  // +/- 키: 시뮬레이션 속도 (프레임당 진행 단계 수, 결과에는 영향 없음)
+  if((key == '+' || key == '=') && !HUMAN_PLAY) {
+    simSpeed = min(simSpeed * 2, MAX_SIM_SPEED);
+  }
+  if((key == '-' || key == '_') && !HUMAN_PLAY) {
+    simSpeed = max(simSpeed / 2, 1);
   }
 
   // 스페이스바로 단일/멀티 뷰 전환
@@ -483,9 +564,11 @@ void keyPressed() {
       exporter.nextRetryFrame = 0;
       exporter.exportGeneration(pop);
     }
-    saveBestAI();
-    println("All-time best AI saved! Exiting...");
-    exit();
+    if(!experimentFinished || hasUnsavedRecord) {  // 실험 종료 시 이미 저장했으면 중복 저장하지 않음
+      saveBestAI();
+      println("All-time best AI saved! Exiting...");
+    }
+    exit();  // dispose()에서 experiments.csv 상태를 STOPPED/COMPLETED로 확정
   }
   
   // S 키로 역대 최고 AI 저장 (종료하지 않음)
@@ -496,3 +579,5 @@ void keyPressed() {
     }
   }
 }
+
+

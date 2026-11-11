@@ -16,7 +16,7 @@ class Population {
    Population(FounderGenomes founders) {  // 1세대: 고정된 시조 유전자로 시작
       tetris_pop = new Tetris[founders.familyCount];
       for(int i = 0; i < tetris_pop.length; i++) {
-         tetris_pop[i] = new Tetris(i+1, founders.buildBrain(i+1));
+         tetris_pop[i] = new Tetris(i+1, founders.buildBrain(i+1), pieceSeedFor(1, i));
       }
       best_tetris = tetris_pop[0];
       best_tetris.is_best = true;
@@ -145,7 +145,7 @@ class Population {
       text("Page " + (view_page + 1) + "/" + pages + "   Grid: " + cols + "x" + rows, 360, height - 15);
       fill(150);
       textSize(12);
-      text("LEFT/RIGHT page | A alive/all | SPACE view | S save | E CSV | P snap | ESC exit", 640, height - 15);
+      text("LEFT/RIGHT page | A alive/all | +/- speed | SPACE view | S save | E CSV | P snap | ESC exit", 590, height - 15);
    }
 
    Tetris find_by_id(int id) {
@@ -198,9 +198,11 @@ class Population {
       best_tetris.is_best = true;
       calculate_fitness_sum();
       
-      newtetris_pop[0] = best_tetris.clone();  //add the best Tetris of the prior generation into the new generation
+      newtetris_pop[0] = best_tetris.clone(pieceSeedFor(gen+1, 0));  //add the best Tetris of the prior generation into the new generation
       for(int i = 1; i < tetris_pop.length; i++) {
-         Tetris child = select_parent().crossover(select_parent());
+         Tetris parentA = select_parent();  // 호출 순서 고정 (PARENT_A 먼저) — 시드 재현성
+         Tetris parentB = select_parent();
+         Tetris child = parentA.crossover(parentB, pieceSeedFor(gen+1, i));
          child.mutate();
          newtetris_pop[i] = child;
       }

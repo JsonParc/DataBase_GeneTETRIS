@@ -9,10 +9,13 @@ import java.util.Locale;
 import java.math.BigDecimal;
 
 // 실험 기록을 관계형 DB 적재용 CSV로 내보내는 클래스
-// exports/<run_id>/ 아래 7개 파일. 완료된 세대만, 세대당 한 번만 기록한다.
+// exports/<run_id>/ 아래 8개 파일. 완료된 세대만, 세대당 한 번만 기록한다.
+// experiments.csv(1행)만 예외로, 세대가 저장될 때마다 최고 점수·진행 상태를 갱신해 다시 쓴다.
 class CsvExporter {
 
-  final String H_EXPERIMENTS  = "run_id,founder_set_id,founder_genome_sha256,program_version,started_at,population_size,mutation_rate,input_nodes,hidden_nodes,output_nodes,hidden_layers";
+  final String H_EXPERIMENTS  = "run_id,founder_set_id,founder_genome_sha256,program_version,started_at,population_size,mutation_rate,input_nodes,hidden_nodes,output_nodes,hidden_layers,"
+                              + "block_seed,piece_seed_mode,max_generations,completed_generations,best_score,best_individual_id,best_generation,status,ended_at";
+  final String H_BLOCK_USAGE  = "run_id,individual_id,generation,piece_seed,pieces_placed,appear_T,appear_S,appear_Z,appear_J,appear_L,appear_I,appear_O,appear_total";
   final String H_GENERATIONS  = "run_id,generation,population_size,highest_score,average_score,completed_at";
   final String H_FAMILIES     = "run_id,family_id,founder_individual_id,founder_name,family_name";
   final String H_INDIVIDUALS  = "run_id,individual_id,generation,family_id,birth_type";
@@ -48,9 +51,23 @@ class CsvExporter {
 
   FounderGenomes founders;  // 이 실행이 사용한 공통 시조 유전자 집합
 
+  // 실험 설정 (시작 시점 값) 및 저장된 세대 기준 요약 — experiments.csv에 기록
+  long seed;
+  String seedMode;
+  int maxGens;
+  int bestScore = -1;          // 저장된(확정된) 세대 중 최고 점수, -1 = 아직 없음
+  int bestIndividualId = 0;
+  int bestGeneration = 0;
+  String runStatus = "RUNNING";  // RUNNING / COMPLETED(최대 세대 도달) / STOPPED(중간 종료)
+  String endedAt = "";
+  boolean finished = false;
+
   CsvExporter(Population p, FounderGenomes founders) {
     this.founders = founders;
     startedAt = timestamp("yyyy-MM-dd HH:mm:ss");
+    seed = blockSeed;
+    seedMode = pieceSeedMode();
+    maxGens = maxGenerations;
 
     populationSize = p.tetris_pop.length;
     mutationRate = mutation_rate;
@@ -87,13 +104,10 @@ class CsvExporter {
       if(!runDir.exists() && !runDir.mkdirs()) {
         throw new IOException("폴더를 만들 수 없습니다: " + runDir.getAbsolutePath());
       }
-      String[] names = {"experiments.csv", "generations.csv", "families.csv", "individuals.csv", "parentage.csv", "genes.csv", "game_results.csv"};
+      String[] names = {"experiments.csv", "generations.csv", "families.csv", "individuals.csv", "parentage.csv", "genes.csv", "game_results.csv", "block_usage.csv"};
       for(String n : names) {
         if(file(n).exists()) throw new IOException("이미 존재하는 파일을 덮어쓰지 않습니다: " + file(n).getAbsolutePath());
       }
-
-      StringBuilder exp = new StringBuilder(H_EXPERIMENTS).append('\n');
-      row(exp, csv(runId), csv(founders.setId), csv(founders.sha256), csv(PROGRAM_VERSION), csv(startedAt), str(populationSize), fmtFloat(mutationRate), str(iNodes), str(hNodes), str(oNodes), str(hLayers));
 
       StringBuilder fam = new StringBuilder(H_FAMILIES).append('\n');
       for(int i = 0; i < populationSize; i++) {
@@ -102,13 +116,14 @@ class CsvExporter {
       }
 
       String[] contents = {
-        exp.toString(),
+        experimentsCsv(),
         H_GENERATIONS + "\n",
         fam.toString(),
         H_INDIVIDUALS + "\n",
         H_PARENTAGE + "\n",
         H_GENES + "\n",
-        H_GAME_RESULTS + "\n"
+        H_GAME_RESULTS + "\n",
+        H_BLOCK_USAGE + "\n"
       };
       try {
         for(int i = 0; i < names.length; i++) {
@@ -158,6 +173,7 @@ class CsvExporter {
     StringBuilder par = new StringBuilder();
     StringBuilder genes = new StringBuilder();
     StringBuilder res = new StringBuilder();
+    StringBuilder blocks = new StringBuilder();
 
     row(gen, csv(runId), str(p.gen), str(n), str(highest), String.format(Locale.ROOT, "%.4f", (double)sum / n), csv(completedAt));
 
@@ -185,16 +201,37 @@ class CsvExporter {
 
       row(res, csv(runId), str(t.uniqueID), str(t.birthGeneration), str(t.score), str(t.lines), str(t.tetris),
           str(t.total_back_to_back), str(t.single_clears), str(t.double_clears), str(t.triple_clears), str(t.pieces_placed));
+
+      String[] b = new String[5 + t.pieceAppear.length + 1];
+      b[0] = csv(runId); b[1] = str(t.uniqueID); b[2] = str(t.birthGeneration); b[3] = Long.toString(t.pieceSeed); b[4] = str(t.pieces_placed);
+      int appearTotal = 0;
+      for(int k = 0; k < t.pieceAppear.length; k++) {
+        b[5 + k] = str(t.pieceAppear[k]);
+        appearTotal += t.pieceAppear[k];
+      }
+      b[b.length - 1] = str(appearTotal);
+      row(blocks, b);
     }
 
-    File[] files = { file("generations.csv"), file("individuals.csv"), file("parentage.csv"), file("genes.csv"), file("game_results.csv") };
-    String[] contents = { gen.toString(), ind.toString(), par.toString(), genes.toString(), res.toString() };
+    File[] files = { file("generations.csv"), file("individuals.csv"), file("parentage.csv"), file("genes.csv"), file("game_results.csv"), file("block_usage.csv") };
+    String[] contents = { gen.toString(), ind.toString(), par.toString(), genes.toString(), res.toString(), blocks.toString() };
+    // 세대별 폴더: 임시 폴더에 먼저 쓰고, 전체 파일 이어쓰기까지 성공하면 이름을 확정
+    File genDir = generationDir(p.gen);
+    File genTmp = new File(genDir.getParentFile(), genDir.getName() + ".tmp");
     try {
+      writeGenerationFolder(genTmp, contents);
       appendAll(files, contents);
     } catch(Exception e) {
+      deleteDir(genTmp);
       reportError("Gen " + p.gen + " CSV 저장 실패 (" + (RETRY_FRAMES / FPS) + "초 후 재시도, E 키로 즉시 재시도)", e);
       nextRetryFrame = frameCount + RETRY_FRAMES;
       return false;
+    }
+    boolean genDirOk = true;
+    deleteDir(genDir);  // 이전 실행 실패로 남은 같은 세대 폴더 (아직 확정되지 않은 세대이므로 안전)
+    if(!genTmp.renameTo(genDir)) {
+      genDirOk = false;
+      println("[CSV][오류] 세대별 폴더 이름 확정 실패: " + genTmp.getAbsolutePath() + " (전체 CSV에는 저장됨)");
     }
 
     // 저장이 끝난 뒤에만 완료 상태로 표시
@@ -207,11 +244,87 @@ class CsvExporter {
     individualsWritten += n;
     geneRowsWritten += geneRows;
 
+    // 실험 요약 갱신 (확정된 최종 점수 기준, 동점이면 먼저 기록된 개체 유지)
+    for(Tetris t : p.tetris_pop) {
+      if(t.score > bestScore) {
+        bestScore = t.score;
+        bestIndividualId = t.uniqueID;
+        bestGeneration = t.birthGeneration;
+      }
+    }
+    boolean summaryOk = rewriteExperiments();
+
     String msg = "Gen " + p.gen + " saved: " + n + " individuals, " + geneRows + " genes"
-                 + (problems.size() > 0 ? " (" + problems.size() + " validation warnings - see console)" : "");
-    setStatus(msg, problems.size() > 0);
+                 + (problems.size() > 0 ? " (" + problems.size() + " validation warnings - see console)" : "")
+                 + (summaryOk ? "" : " (experiments.csv 갱신 실패 - 다음 세대에 재시도)")
+                 + (genDirOk ? " + by_generation/" + genDir.getName() : " (세대별 폴더 실패 - 콘솔 참고)");
+    setStatus(msg, problems.size() > 0 || !summaryOk || !genDirOk);
     println("[CSV] " + msg + " -> " + runDir.getName());
     return true;
+  }
+
+  // exports/<run_id>/by_generation/gen_0003/
+  File generationDir(int gen) {
+    return new File(runDir, "by_generation/gen_" + nf(gen, 4));
+  }
+
+  // 한 세대 분량만 담은 6개 파일 (헤더 포함, 전체 CSV와 같은 형식)
+  void writeGenerationFolder(File dir, String[] contents) throws IOException {
+    deleteDir(dir);
+    if(!dir.mkdirs()) throw new IOException("폴더를 만들 수 없습니다: " + dir.getAbsolutePath());
+    String[] names = { "generations.csv", "individuals.csv", "parentage.csv", "genes.csv", "game_results.csv", "block_usage.csv" };
+    String[] headers = { H_GENERATIONS, H_INDIVIDUALS, H_PARENTAGE, H_GENES, H_GAME_RESULTS, H_BLOCK_USAGE };
+    for(int i = 0; i < names.length; i++) {
+      writeFile(new File(dir, names[i]), headers[i] + "\n" + contents[i], false);
+    }
+  }
+
+  void deleteDir(File dir) {
+    File[] fs = dir.listFiles();
+    if(fs != null) for(File f : fs) f.delete();
+    dir.delete();
+  }
+
+  // experiments.csv 내용 (헤더 + 1행). 아직 값이 없는 칸(best_*, ended_at)은 빈 칸 = DB에서 NULL
+  String experimentsCsv() {
+    StringBuilder exp = new StringBuilder(H_EXPERIMENTS).append('\n');
+    row(exp, csv(runId), csv(founders.setId), csv(founders.sha256), csv(PROGRAM_VERSION), csv(startedAt), str(populationSize), fmtFloat(mutationRate),
+        str(iNodes), str(hNodes), str(oNodes), str(hLayers),
+        Long.toString(seed), csv(seedMode), str(maxGens), str(lastExportedGen),
+        bestScore < 0 ? "" : str(bestScore), bestScore < 0 ? "" : str(bestIndividualId), bestScore < 0 ? "" : str(bestGeneration),
+        csv(runStatus), csv(endedAt));
+    return exp.toString();
+  }
+
+  // experiments.csv를 임시 파일에 쓴 뒤 교체 (중간에 실패해도 기존 파일이 깨지지 않음)
+  boolean rewriteExperiments() {
+    if(!initialized) return false;
+    File target = file("experiments.csv");
+    File tmp = file("experiments.csv.tmp");
+    try {
+      writeFile(tmp, experimentsCsv(), false);
+      try {
+        Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+      } catch(IOException atomicFail) {
+        Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);  // OneDrive 폴더 등 원자적 교체 미지원
+      }
+      return true;
+    } catch(Exception e) {
+      tmp.delete();
+      println("[CSV][오류] experiments.csv 갱신 실패: " + e);
+      return false;
+    }
+  }
+
+  // 실험 종료 상태 확정 (COMPLETED: 최대 세대 도달 / STOPPED: 중간 종료). 한 번만 기록
+  void finish(String status) {
+    if(finished) return;
+    finished = true;
+    runStatus = status;
+    endedAt = timestamp("yyyy-MM-dd HH:mm:ss");
+    if(rewriteExperiments()) {
+      println("[CSV] 실험 상태 " + status + " 기록 (완료 세대 " + lastExportedGen + ", 최고 점수 " + (bestScore < 0 ? "-" : str(bestScore)) + ")");
+    }
   }
 
   // 저장 직전 참조 무결성 검사. 문제 목록을 돌려준다 (비어 있으면 정상)
@@ -359,7 +472,7 @@ class CsvExporter {
 
   // run_id 앞부분: RUN_OWNER(영문·숫자·_·-만 사용), 비어 있으면 RUN
   String runOwnerTag() {
-    String tag = RUN_OWNER.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9_-]", "");
+    String tag = runOwner.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9_-]", "");
     return tag.length() == 0 ? "RUN" : tag;
   }
 

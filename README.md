@@ -48,15 +48,22 @@ TetrisAI/
 4. 같은 폴더의 다른 `.pde` 파일은 스케치의 탭으로 함께 로드됩니다. `Population.pde`나 `Tetris.pde`를 따로 실행할 필요가 없습니다.
 5. 좌측 상단의 **▶ Run (실행)** 버튼을 누릅니다.
 
-**4. 팀원 이름 설정 (선택 사항)**
+**4. 실험 설정 창 (v2.1.0)**
 
-실행 전에 `TetrisAI.pde` 상단의 `RUN_OWNER`에 자신의 식별용 영문 이름을 입력할 수 있습니다.
+실행하면 시조 유전자 검증 직후 **실험 설정 창**이 뜹니다. `취소`를 누르면 아무것도 만들지 않고 종료합니다.
 
-```java
-final String RUN_OWNER = "DONGHYUN";
-```
+| 항목 | 설명 |
+|---|---|
+| 실행자 이름 | `run_id` 앞부분 (영문/숫자). 비우면 `RUN`. 예: `DONGHYUN` → `DONGHYUN_20261030_141502_3F9A1C2B` |
+| 블록 난수 시드 | 정수. **비우면 무작위로 정하고 CSV에 기록**하므로 나중에 같은 실험을 재현할 수 있습니다 |
+| 최대 세대 수 | 이 세대까지 저장하면 실험을 끝냅니다. `0` = 무제한 (기존 방식) |
+| 같은 블록 순서 | 체크하면 같은 세대의 200개체가 모두 같은 블록 순서로 플레이 (공정 비교). 해제하면 개체마다 다른 순서 (원본 방식, 기본값) |
 
-이렇게 지정하면 `run_id`는 예를 들어 `DONGHYUN_20261030_141502_3F9A1C2B`와 같은 형식으로 생성됩니다. **팀원 간 데이터 비교를 위해 공통 시조 유전자 파일과 그 설정값은 변경하지 마세요.**
+- **같은 시드 + 같은 설정 = 완전히 같은 실험**: 블록 순서뿐 아니라 부모 선택·교차·돌연변이 난수도 이 시드에서 시작하므로, 세대별 점수·계보·유전자까지 똑같이 재현됩니다. (실행 속도 배수와는 무관)
+- 창 없이 실행하려면 `TetrisAI.pde` 상단에서 `ASK_SETTINGS_ON_START = false`로 두고 `RUN_OWNER`, `DEFAULT_BLOCK_SEED`, `DEFAULT_MAX_GENERATIONS`, `DEFAULT_SHARED_PIECES` 기본값을 사용합니다.
+- 최대 세대에 도달하면 마지막 세대 저장 → `experiments.csv`에 `COMPLETED` 기록 → 역대 최고 기록 JSON 저장 후 화면 하단에 완료 표시가 나옵니다. ESC로 종료하세요.
+
+**팀원 간 데이터 비교를 위해 공통 시조 유전자 파일과 그 설정값은 변경하지 마세요.**
 
 **5. 실행 상태 확인**
 
@@ -203,10 +210,11 @@ AI가 다음에 등장할 블록을 미리 알고 있다면, 현재 블록의 �
 | `SPACE` | 단일 화면 ↔ 전체 개체 화면 전환 |
 | `←` / `→` | (전체 개체 화면) 페이지 이동 |
 | `A` | (전체 개체 화면) 살아 있는 개체만 ↔ 사망 포함 전체 |
-| `S` | 역대 최고 기록을 JSON으로 저장 (`data/best_ai*.json`) |
+| `S` | 역대 최고 기록을 JSON으로 저장 (`exports/<run_id>/best_ai/gen….json` + `data/best_ai.json`) |
 | `E` | CSV 저장 상태를 콘솔에 출력하고, 저장에 실패한 완료 세대가 있으면 즉시 재시도 |
 | `P` | 진행 중인 세대의 현재 상태를 **별도 스냅샷**으로 저장 (`exports/<run_id>/in_progress/`, 최종 기록 아님) |
-| `ESC` | 완료됐지만 미저장인 세대가 있으면 저장 → 역대 최고 기록 JSON 저장 → 종료 |
+| `+` / `-` | 시뮬레이션 속도 x1 ~ x64, 기본 x4 (프레임당 진행 단계 수. 결과는 속도와 무관하게 같음) |
+| `ESC` | 완료됐지만 미저장인 세대가 있으면 저장 → 역대 최고 기록 JSON 저장 → `experiments.csv`에 `STOPPED` 기록 → 종료 (창 닫기 버튼도 `STOPPED` 기록) |
 
 ### 시조와 가문
 
@@ -227,7 +235,7 @@ AI가 다음에 등장할 블록을 미리 알고 있다면, 현재 블록의 �
 
 ### CSV 출력 경로
 
-각 독립적인 실험은 `run_id`(예: `DONGHYUN_20261030_141502_3F9A1C2B`)로 구분하고, 다음 경로에 7개 CSV 파일을 저장합니다. 같은 이름의 폴더가 이미 있으면 `_2`, `_3`… 을 붙여 기존 결과를 절대 덮어쓰지 않습니다.
+각 독립적인 실험은 `run_id`(예: `DONGHYUN_20261030_141502_3F9A1C2B`)로 구분하고, 다음 경로에 8개 CSV 파일을 저장합니다. 같은 이름의 폴더가 이미 있으면 `_2`, `_3`… 을 붙여 기존 결과를 절대 덮어쓰지 않습니다.
 
 ```text
 exports/
@@ -239,19 +247,53 @@ exports/
     ├── parentage.csv
     ├── genes.csv
     ├── game_results.csv
-    └── in_progress/            (P 키를 눌렀을 때만 생성, DB 적재 대상 아님)
-        └── gen_<N>_snapshot_<시각>.csv
+    ├── block_usage.csv         (v2.1.0 추가)
+    ├── by_generation/          (v2.1.0) 세대별로 나눈 같은 데이터 — 원하는 세대만 불러올 때
+    │   ├── gen_0001/
+    │   │   ├── generations.csv     (그 세대 1행)
+    │   │   ├── individuals.csv     (그 세대 200개체)
+    │   │   ├── parentage.csv
+    │   │   ├── genes.csv           (그 세대 200 × 29행)
+    │   │   ├── game_results.csv
+    │   │   └── block_usage.csv
+    │   ├── gen_0002/
+    │   └── ...
+    ├── best_ai/                (S 키 / 종료 시 역대 최고 기록 JSON)
+    │   └── gen0003_id000512_score41800_FINAL.json
+    ├── in_progress/            (P 키를 눌렀을 때만 생성, DB 적재 대상 아님)
+    │   └── gen_<N>_snapshot_<시각>.csv
+    └── pvp/                    (TetrisPvP를 실행했을 때만 생성, 아래 "배틀로얄" 참고)
+        ├── pvp_matches.csv
+        └── pvp_participants.csv
 ```
+
+- **전체 CSV**(폴더 바로 아래 8개)는 모든 세대가 한 파일에 이어져 있어 DB에 한 번에 적재하기 좋고, **`by_generation/gen_NNNN/`** 은 같은 내용을 세대별로 나눈 것이라 특정 세대만 열거나 불러오기 좋습니다. 두 쪽 내용은 같습니다(세대 폴더 파일에도 헤더가 있음).
+- 세대 폴더는 전체 CSV 저장이 성공한 뒤에 이름이 확정됩니다(`gen_NNNN.tmp` → `gen_NNNN`). `.tmp` 폴더가 남아 있으면 저장되지 않은 세대이므로 무시하세요.
+- 용량은 세대당 약 2배(약 580KB)가 됩니다.
 
 ### CSV 파일별 내용
 
-#### 1. `experiments.csv` — 실험 설정
+#### 1. `experiments.csv` — 실험 설정 및 결과 요약
 
 ```csv
-run_id,founder_set_id,founder_genome_sha256,program_version,started_at,population_size,mutation_rate,input_nodes,hidden_nodes,output_nodes,hidden_layers
+run_id,founder_set_id,founder_genome_sha256,program_version,started_at,population_size,mutation_rate,input_nodes,hidden_nodes,output_nodes,hidden_layers,block_seed,piece_seed_mode,max_generations,completed_generations,best_score,best_individual_id,best_generation,status,ended_at
 ```
 
-실험 ID, 사용한 공통 시조 집합(`FOUNDERS_V1`)과 그 파일의 SHA-256, 프로그램 버전(`2.0.0`), 시작 시각, 개체군 크기, 돌연변이율 및 신경망 구조를 기록합니다. 실험마다 1행을 사용합니다.
+실험 ID, 사용한 공통 시조 집합(`FOUNDERS_V1`)과 그 파일의 SHA-256, 프로그램 버전(`2.1.0`), 시작 시각, 개체군 크기, 돌연변이율 및 신경망 구조를 기록합니다. 실험마다 1행을 사용합니다.
+
+v2.1.0에서 추가된 컬럼 — 이 파일만 **세대가 저장될 때마다 1행 전체를 다시 씁니다** (임시 파일에 쓴 뒤 교체하므로 중간에 꺼져도 깨지지 않음):
+
+| 컬럼 | 내용 |
+|---|---|
+| `block_seed` | 실험 시드 (설정 창 입력값 또는 자동으로 정한 값) |
+| `piece_seed_mode` | `PER_INDIVIDUAL`(개체마다 다른 블록 순서) / `SHARED_PER_GENERATION`(세대 전체가 같은 순서) |
+| `max_generations` | 설정한 최대 세대 수 (`0` = 무제한) |
+| `completed_generations` | 저장 완료된 세대 수 |
+| `best_score`, `best_individual_id`, `best_generation` | 저장된 세대 중 최고 점수와 그 개체·세대 (아직 없으면 빈 칸) |
+| `status` | `RUNNING` / `COMPLETED`(최대 세대 도달) / `STOPPED`(ESC·창 닫기로 중간 종료). 강제 종료(작업 관리자 등)되면 `RUNNING`으로 남습니다 |
+| `ended_at` | 종료 시각 (실행 중이면 빈 칸) |
+
+빈 칸은 MySQL에서 `NULLIF(@col, '')`로 NULL 처리해 적재하세요.
 
 #### 2. `generations.csv` — 세대별 통계
 
@@ -319,6 +361,16 @@ run_id,individual_id,generation,score,lines,tetris_count,total_back_to_back,sing
 
 **개체당 게임 1회**이며, 게임이 끝난 개체의 최종 결과를 1행으로 저장합니다. 모든 값은 `Tetris.pde`가 게임 중 실제로 집계한 값입니다. (`tetris_count` = `tetris` 필드, `total_back_to_back` = 연속 테트리스 누적 횟수)
 
+#### 8. `block_usage.csv` — 블록 사용 기록 (v2.1.0)
+
+```csv
+run_id,individual_id,generation,piece_seed,pieces_placed,appear_T,appear_S,appear_Z,appear_J,appear_L,appear_I,appear_O,appear_total
+```
+
+개체 게임 1회당 1행. `piece_seed`는 그 게임의 블록 순서 시드로, 실험 시드(`experiments.block_seed`)와 세대·개체 순번에서 결정적으로 계산됩니다. `appear_*`는 블록 종류별로 **뽑힌 횟수**(마지막에 "다음 블록"으로 뽑혔지만 놓이지 못한 1개 포함)이므로 `appear_total = pieces_placed + 2`가 일반적입니다(현재 블록 + 다음 블록). 컬럼 순서는 `TetrisAI.pde`의 `tetrominos` 배열 순서(T, S, Z, J, L, I, O)와 같습니다.
+
+`SHARED_PER_GENERATION` 모드에서는 같은 세대 개체들의 `piece_seed`가 모두 같습니다.
+
 ### 파일 간 관계
 
 | 연결 키 | 용도 |
@@ -333,8 +385,8 @@ run_id,individual_id,generation,score,lines,tetris_count,total_back_to_back,sing
 
 ### 출력 시점 및 형식
 
-- 최초 시조와 실험 설정(`experiments.csv`, `families.csv`)과 나머지 5개 파일의 헤더는 실험 시작 시 기록합니다.
-- **세대교체 직전**(200개체가 모두 게임 오버된 프레임), 사망 개체를 포함한 200개체의 최종 점수와 유전자를 확정하여 5개 파일에 이어 씁니다. 파일 쓰기는 세대당 1회이며 매 프레임 쓰지 않습니다.
+- 최초 시조와 실험 설정(`experiments.csv`, `families.csv`)과 나머지 6개 파일의 헤더는 실험 시작 시 기록합니다.
+- **세대교체 직전**(200개체가 모두 게임 오버된 프레임), 사망 개체를 포함한 200개체의 최종 점수와 유전자를 확정하여 6개 파일(`generations`, `individuals`, `parentage`, `genes`, `game_results`, `block_usage`)에 이어 쓰고, `experiments.csv`의 요약 컬럼을 갱신합니다. 파일 쓰기는 세대당 1회이며 매 프레임 쓰지 않습니다.
 - **저장에 성공한 뒤에만** 다음 세대로 넘어갑니다. 저장 중 오류가 나면
 
   - 이번 세대에 이어 쓴 내용을 모든 파일에서 원래 길이로 되돌리고(부분 기록 방지),
@@ -380,7 +432,7 @@ IGNORE 1 LINES;
 
 ### 역대 최고 기록 JSON (`S` / `ESC`)
 
-기존 `data/best_ai.json`, `data/best_aiN.json` 저장 기능과 키 구조는 그대로 유지합니다(BestAI, NeuralAnalyzer 호환).
+v2.1.0부터 저장본은 **실행 폴더 안에 세대·개체·점수가 드러나는 이름**으로 저장됩니다: `exports/<run_id>/best_ai/gen0003_id000512_score41800_FINAL.json` (`FINAL` = 게임이 끝난 확정 점수, `INPROGRESS` = 아직 플레이 중일 때 저장). 이전의 `data/best_ai1.json`, `best_ai2.json`… 번호 파일은 더 만들지 않으며, `data/best_ai.json`은 BestAI·NeuralAnalyzer 호환을 위해 **가장 최근 저장본**으로 계속 덮어씁니다. 키 구조는 그대로이며 `block_seed`, `game_piece_seed`가 추가되었습니다.
 
 - 이전에는 기록 개체를 `clone()`으로 보관해서 **새 개체 ID가 소비되고 점수·통계가 0으로 저장**되는 문제가 있었습니다. (기존 `best_ai.json`의 `"score": 0`, 1세대에 존재하지 않는 `"unique_id": 234` 가 이 문제의 결과입니다)
 - 이제는 원본 개체의 값을 복사한 불변 스냅샷(`TetrisRecord.pde`)으로 보관하므로 개체 ID를 소비하지 않고, 원본 ID·시조·세대·점수·게임 통계·가중치가 그대로 저장됩니다.
@@ -397,3 +449,81 @@ IGNORE 1 LINES;
 - 가문별 생존 후손 수 및 멸문 여부 확인
 - 우수 개체의 유전자 가중치 비교
 - 실험 조건별 학습 성과 비교
+
+---
+
+## 배틀로얄 (TetrisPvP)
+
+`TetrisPvP/` 폴더는 **유전 알고리즘과 별도로 실행하는 대결 프로그램**입니다. TetrisAI가 이미 저장한 `exports/<run_id>/`의 개체 유전자를 불러와 한 판에 모아 놓고 서로 공격하게 합니다. 학습 중인 컴퓨터에서 동시에 돌릴 필요 없이, 실험이 끝난 뒤(또는 중간에 저장된 세대만으로) 아무 컴퓨터에서나 실행하면 됩니다. TetrisAI 스케치를 열 때 이 하위 폴더는 무시되므로 서로 영향을 주지 않습니다.
+
+**실행**: Processing에서 `TetrisPvP/TetrisPvP.pde`를 열고 ▶ Run. 실험 폴더를 다른 곳에 두었다면 `EXPORTS_DIR`에 경로를 지정하세요(기본값: `TetrisAI/exports`). 다른 팀원의 결과도 그 `<run_id>` 폴더를 `exports/` 안에 넣으면 선택할 수 있습니다.
+
+**설정 창**
+
+| 항목 | 설명 |
+|---|---|
+| 실험 | `exports/` 안의 `run_id` 폴더 (최근 순) |
+| 세대 | `LAST`(마지막 저장 세대) 또는 세대 번호. **그 세대 개체 전원(200명)이 한 경기**에 참가합니다 |
+| 블록 난수 시드 | 정수. 비우면 무작위 (기록됨) |
+| 최대 단계 | 이 단계까지 끝나지 않으면 생존자 중 점수 1위가 우승 (`TIME_LIMIT`). 기본 200,000 |
+
+실행 1번 = 경기 1번입니다. 세대 데이터는 `by_generation/gen_NNNN/`이 있으면 그 폴더에서, 없으면(2.0.0 실행 결과) 전체 CSV에서 해당 세대만 골라 읽습니다.
+
+**최대 단계란?** 1단계 = 모든 참가자가 동시에 한 번 움직이는 게임 내부 시간 단위입니다(회전·좌우 이동 1번 또는 한 칸 낙하). 블록 하나를 놓는 데 대략 20~25단계가 들므로 200,000단계 ≈ 참가자당 블록 약 8,000~10,000개입니다. 방해 줄 때문에 보통 그 전에 끝나며, 무한히 버티는 경기를 막는 안전장치입니다. 기본 속도 x4(300fps)에서 200,000단계는 약 3분입니다(실제로는 참가자 계산량 때문에 더 느릴 수 있음).
+
+**공격 방식**: 경기 시작 때 참가자마다 아래 3가지 중 하나가 **무작위로 배정**되고(경기 시드로 결정 → 재현 가능), 그 경기 동안 유지됩니다. 배정 결과는 `pvp_participants.target_strategy`에 기록되므로 어떤 방식이 유리한지 DB에서 비교할 수 있습니다. 화면에는 ID 옆에 `R`/`L`/`W`로 표시됩니다.
+
+| 방식 | 공격 대상 |
+|---|---|
+| `RANDOM` | 살아 있는 상대 중 무작위 |
+| `LEADER` | 현재 점수 1위 |
+| `WEAKEST` | 가장 높이 쌓인 상대 (받을 예정인 방해 줄 포함) |
+
+**규칙**
+
+- 모든 참가자가 **같은 블록 순서**(경기 시드)로 동시에 플레이합니다. AI의 배치 판단은 학습 때(`Tetris.pde`)와 완전히 같습니다.
+- 한 번에 k줄을 지우면 **k-1줄**을 공격 대상 1명에게 방해 줄로 보냅니다 (2줄→1, 3줄→2, 테트리스→3).
+- 방해 줄은 **줄마다 무작위 한 칸이 비어 있는** 회색 줄로, 받은 쪽의 다음 블록이 놓이는 순간 아래에서 밀려 올라옵니다. 대기 중인 줄은 보드 왼쪽 빨간 막대로 표시됩니다.
+- 방해 줄을 지우면 **높이만 줄어들 뿐 점수도 공격도 없습니다**. 점수는 일반 줄만으로 TetrisAI와 같은 규칙으로 계산합니다.
+- 블록이 맨 윗줄에 닿거나 방해 줄에 밀려 판 위로 넘치면 탈락합니다. 마지막 1명이 남으면 우승(`LAST_SURVIVOR`), 마지막 생존자들이 같은 단계에 함께 탈락하면 그중 점수 1위가 우승(`SIMULTANEOUS_KO`)합니다.
+- 순위: 생존자(점수순) → 늦게 탈락한 순 → 같은 단계 탈락이면 점수순 → 개체 ID순.
+- 같은 실험·세대·시드면 경기 결과(공격 방식 배정 포함)가 똑같이 재현됩니다(속도 배수와 무관).
+
+**단축키**: `+`/`-` 속도 x1~x256 (기본 x4), `SPACE` 일시정지, `←`/`→` 페이지, `A` 생존자만/전체, `ESC` 종료(진행 중인 경기는 저장되지 않음).
+
+**출력** (`exports/<run_id>/pvp/`, 경기를 할 때마다 같은 두 파일에 이어 씀)
+
+```csv
+# pvp_matches.csv — 경기 1행
+match_id,run_id,generation,program_version,block_seed,player_count,max_steps,started_at,ended_at,duration_steps,duration_ms,highest_score,highest_score_individual_id,winner_individual_id,end_reason
+
+# pvp_participants.csv — 경기 × 참가자 1행
+match_id,run_id,individual_id,generation,family_id,target_strategy,final_rank,score,lines,garbage_lines_cleared,lines_sent,lines_received,pieces_placed,tetris_count,kills,eliminated_step
+```
+
+- `match_id` = `PVP_<시각>_<UUID 8자리>` 형식으로 전역 고유. `generation` 컬럼으로 몇 세대 경기인지 구분합니다. `winner_individual_id`, `individual_id`는 `(run_id, individual_id)`로 `individuals`와 연결됩니다.
+- `duration_steps`는 게임 내부 시간(재현 가능), `duration_ms`는 실제 경과 시간(속도 배수에 따라 달라짐).
+- `kills` = 마지막으로 공격한 상대가 탈락한 횟수. `eliminated_step`은 생존자면 빈 칸.
+
+---
+
+## DB 과제 5개 테이블과 CSV 대응
+
+| 과제 테이블 | 요구 컬럼 | CSV (컬럼) |
+|---|---|---|
+| ① AI 개체 | ID, 유전자, 세대 | `individuals.csv` (`run_id`, `individual_id`, `generation`, `family_id`, `birth_type`) + `genes.csv` (개체당 29행 가중치) |
+| ② PvP 경기 정보 | 경기 ID, 최고 득점, 시간, 승자 ID | `pvp_matches.csv` (`match_id`, `highest_score`, `started_at`/`ended_at`/`duration_steps`, `winner_individual_id`) |
+| ③ 블록 사용 기록 | 블록 배치 횟수, 블록별 출현 수, 블록 난수 시드 | `block_usage.csv` (`pieces_placed`, `appear_T`~`appear_O`, `piece_seed`) |
+| ④ 실험 | 실행 ID, 최대 세대 수, 블록 난수 시드, 최고 득점 | `experiments.csv` (`run_id`, `max_generations`, `block_seed`, `best_score`) |
+| ⑤ 학습 성능 | 개체 점수, 세대, 제거한 줄 수, 배치한 블록 수, ID | `game_results.csv` (`score`, `generation`, `lines`, `pieces_placed`, `individual_id`) |
+
+- "유전자"는 개체 테이블에 한 컬럼으로 넣는 대신 `genes.csv`처럼 **개체 1 : 가중치 N** 테이블로 분리해 두었습니다(정규화). 한 컬럼이 꼭 필요하면 SQL에서 `GROUP_CONCAT(weight ORDER BY gene_index)`로 만들 수 있습니다.
+- 나머지 CSV(`generations`, `families`, `parentage`, `pvp_participants`)는 5개 테이블에 없는 보조 데이터입니다. 경기 참가자·순위 같은 질의를 하려면 `pvp_participants`를 추가 테이블로 쓰면 됩니다.
+- 모든 개체 참조는 `(run_id, individual_id)` 복합키입니다. 여러 팀원의 결과를 합칠 때도 그대로 유지됩니다.
+
+## 변경 이력
+
+- **2.1.0**: 실험 설정 창(블록 난수 시드·최대 세대·같은 블록 순서), 시드 하나로 실험 전체 재현, `block_usage.csv` 추가, `experiments.csv`에 시드·최대 세대·최고 점수·상태 컬럼 추가, 속도 조절(`+`/`-`), 세대별 CSV 폴더(`by_generation/gen_NNNN/`), 최고 기록 JSON을 실행 폴더에 세대·개체·점수가 드러나는 이름으로 저장, 배틀로얄 프로그램 `TetrisPvP` 추가.
+  - 학습 동작 수정: 교차로 태어난 자식이 첫 블록을 **임시 무작위 신경망**(교차 전)으로 두던 문제와, 돌연변이 전 신경망의 계획을 쓰던 문제를 고쳐 처음부터 자기 유전자로 플레이합니다.
+  - 블록 순서가 유전 연산과 다른 난수를 쓰도록 분리되었으므로, 2.0.0 실행과는 같은 조건이라도 진화 경로가 다릅니다. 팀원 간 비교는 같은 `program_version`끼리 하세요.
+- **2.0.0**: 공통 시조 유전자, 계보 CSV 7종.
