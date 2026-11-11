@@ -589,6 +589,75 @@ erDiagram
 - **일부러 저장한 계산값 2개:** `EXPERIMENT.high_score`(= 실험의 `MAX(GAME_RESULT.score)`), `PVP_MATCH.highest_score`(= 경기의 `MAX(PVP_PARTICIPANT.score)`). 목록 조회를 빠르게 하려고 둔 값이며, 프로그램이 기록한 값과 실제 최대값이 일치하는 것을 확인했습니다.
 - 게임별 시드는 int 범위를 넘으므로 `BIGINT`, 경기 ID는 `PVP_20261112_082702_A6D96F10` 형식이므로 `VARCHAR`입니다.
 
+### 기존 설계에서 바꾼 점
+
+기존 설계(초안)는 다음 5개 테이블이었습니다.
+
+| 테이블 | PK | FK | 속성 |
+|---|---|---|---|
+| EXPERIMENT | `run_id` | `block_seed` → BLOCK_USAGE | 최대 세대 수, 블럭 난수 시드, 최고 득점 |
+| BLOCK_USAGE | `block_seed` | - | 배치 횟수, 블럭별 출현 수(`piece_counts` 문자열) |
+| AI_INDIVIDUAL | `individual_id` | `run_id` → EXPERIMENT | 유전자(`genome` 문자열), 세대 |
+| PERFORMANCE | `individual_id` | `individual_id` → AI_INDIVIDUAL | 세대, 개체 점수, 제거한 줄 수, 배치한 블럭 수 |
+| PVP_MATCH | `match_id` (INT) | `winner_id` → AI_INDIVIDUAL | 최고 득점, 시간(`match_time`), 승자 ID |
+
+관계: BLOCK_USAGE 1:N EXPERIMENT, EXPERIMENT 1:N AI_INDIVIDUAL, AI_INDIVIDUAL 1:1 PERFORMANCE, AI_INDIVIDUAL 1:N PVP_MATCH(승자)
+
+**1. AI_INDIVIDUAL 기본키(PK) 변경**
+- 기존: `individual_id` 단일 기본키
+- 변경: `(run_id, individual_id)` 복합 기본키
+- 이유: 개체 ID가 실행마다 1부터 다시 시작하므로, 여러 실험 데이터를 합치면 ID가 중복되어 PK 위반이 발생할 수 있음.
+
+**2. PERFORMANCE와 BLOCK_USAGE를 GAME_RESULT로 통합**
+- 기존: PERFORMANCE(점수·줄 수·배치 블록 수)와 BLOCK_USAGE(시드·배치 횟수·블록별 출현 수)를 별도 테이블로 저장
+- 변경: 두 테이블을 GAME_RESULT 하나로 통합하고, 기본키를 `(run_id, individual_id)`로 지정
+- 이유: 두 테이블 모두 같은 개체의 같은 게임 1판의 결과이므로 1:1 관계로 나눌 이유가 없음. 통합하면 불필요한 JOIN이 줄고, 두 테이블에 모두 있던 배치 블록 수의 중복도 사라짐.
+
+**3. 게임 결과의 중복 컬럼 제거**
+- 기존: PERFORMANCE에 `generation` 포함
+- 변경: `generation` 제거 (AI_INDIVIDUAL에만 둠)
+- 이유: 세대는 개체가 결정되면 함께 결정되는 값이므로, 게임 결과 테이블에 다시 저장하면 데이터 중복이 발생함.
+
+**4. 블록 사용 기록의 기준 및 관계 변경**
+- 기존: `block_seed`가 BLOCK_USAGE의 기본키이며, EXPERIMENT가 이를 외래키로 참조하는 1:N 관계
+- 변경: 블록 사용 기록을 게임(개체)별 1행으로 저장하고, 게임별 시드 `piece_seed`를 일반 속성으로 둠. EXPERIMENT의 `block_seed`는 외래키가 아닌 일반 속성으로 변경
+- 이유: 배치 횟수와 블록 출현 수는 시드만으로 결정되지 않고 AI가 얼마나 오래 버티는지에 따라 달라지므로, 같은 시드라도 기록이 달라질 수 있어 시드를 기본키로 사용할 수 없음. 같은 시드로 진행한 실험끼리의 비교는 EXPERIMENT의 `block_seed`로 묶어서 조회함.
+
+**5. 블록 출현 횟수 저장 방식 변경**
+- 기존: `piece_counts` 문자열 컬럼 하나
+- 변경: `appear_T` ~ `appear_O` 총 7개 컬럼
+- 이유: 여러 블록의 출현 횟수를 하나의 문자열에 저장하면 원자성이 부족하고, 블록별 합계 및 평균을 SQL로 계산하기 어려움.
+
+**6. 유전자 저장 방식 변경**
+- 기존: `genome` 문자열 컬럼 하나
+- 변경: `w00` ~ `w28` 총 29개 컬럼
+- 이유: 개체의 유전자 수가 29개로 고정되어 있으므로 개별 컬럼으로 분리하여 저장함. 이를 통해 유전자별 조회 및 통계 계산이 쉬워짐.
+
+**7. PvP 경기 ID 및 시간 컬럼 변경**
+- 기존: `match_id`는 INT, 시간은 `match_time` 하나
+- 변경: `match_id`는 VARCHAR, 시간은 `started_at`과 `ended_at`으로 분리하고 경기 길이 `duration_steps` 추가
+- 이유: 실제 경기 ID가 `PVP_20261112_...` 형식의 문자열이며, 시작 시각과 종료 시각이 각각 기록되기 때문임.
+
+**8. PvP 참가자 테이블(PVP_PARTICIPANT) 추가**
+- 기존: PVP_MATCH가 승리한 개체(`winner_id`)만 참조
+- 변경: 경기와 개체 사이에 PVP_PARTICIPANT를 두고, 기본키를 `(match_id, run_id, individual_id)`로 지정. 참가자별 순위·공격 방식·점수·공격량을 저장
+- 이유: 배틀로얄은 한 경기에 여러 개체가 참가하고 한 개체가 여러 경기에 참가하는 N:M 관계임. 승자만 저장하면 패배한 개체의 참가 여부, 참가 횟수, 승률, 순위, 공격량을 알 수 없음.
+
+**9. 승자 저장 방식 변경**
+- 기존: PVP_MATCH의 `winner_id` 외래키
+- 변경: `winner_id` 컬럼을 제거하고 PVP_PARTICIPANT의 `final_rank = 1`로 승자를 조회. 과제 요구 형태(경기 ID, 최고 득점, 시간, 승자 ID)는 `PVP_MATCH_SUMMARY` 뷰로 제공하며, `UNIQUE (match_id, final_rank)`로 경기당 1위가 하나뿐임을 보장
+- 이유: 승자 정보가 참가자 테이블에 이미 있으므로 경기 테이블에 다시 저장하면 같은 사실이 두 곳에 중복됨. 또한 참가자마다 자신의 `run_id`를 가지므로, 서로 다른 실험의 개체끼리 대전하더라도 소속 실험을 정확히 구분할 수 있음.
+
+**10. 게임 결과 관계의 참여 조건 변경**
+- 기존: AI_INDIVIDUAL과 게임 결과 테이블이 필수 1:1 관계
+- 변경: AI_INDIVIDUAL 1 : 0..1 GAME_RESULT
+- 이유: DB 제약조건만으로는 양쪽 필수 참여를 강제할 수 없으며, 개념적으로 개체가 생성된 직후에는 게임 결과가 없을 수 있음. 단, 프로그램은 세대의 게임이 모두 끝난 뒤 개체와 결과를 한 번에 저장하므로 실제 데이터에서는 모든 개체에 결과가 존재함.
+
+**11. 블록 시드 자료형 변경**
+- 기존: `block_seed` INT
+- 변경: EXPERIMENT의 `block_seed`, GAME_RESULT의 `piece_seed` 모두 BIGINT
+- 이유: 게임에서 사용하는 블록 생성 시드가 일반 INT의 표현 범위를 초과할 수 있기 때문임.
+
 ### MySQL DDL
 
 ```sql
