@@ -147,7 +147,7 @@ AI가 다음에 등장할 블록을 미리 알고 있다면, 현재 블록의 �
 
 이 프로젝트는 DB조별과제 시나리오의 데이터 생성 프로그램으로 확장되었습니다.
 
-테트리스 AI 자체는 Processing(Java 기반) 프로그램이며, 생성된 CSV 파일을 향후 **Python + MySQL**로 개발하는 별도의 데이터베이스 관리 프로그램에서 가져와 분석할 예정입니다. 테트리스 프로그램 자체에는 MySQL 연결이나 DB 관리 화면이 없습니다.
+테트리스 AI 자체는 Processing(Java 기반) 프로그램이며, 생성된 CSV 파일을 향후 **Python + MySQL**로 개발하는 별도의 데이터베이스 관리 프로그램에서 가져와 분석할 예정입니다. 테트리스 프로그램 자체에는 MySQL 연결이나 DB 관리 화면이 없습니다. 5개 테이블 구조·DDL·적재 방법은 아래 [DB 설계 (5개 테이블)](#db-설계-5개-테이블) 섹션을 참고하세요.
 
 ### 공통 시조 유전자 (팀원 간 데이터 통합)
 
@@ -395,7 +395,7 @@ run_id,individual_id,generation,piece_seed,pieces_placed,appear_T,appear_S,appea
 
   - 세대교체를 멈춘 채 2초마다(또는 `E` 키로 즉시) 재시도합니다.
 
-- 완료되지 않은 세대의 중간 결과는 7개 파일에 기록하지 않습니다. `P` 키 스냅샷은 `in_progress/` 폴더에 `status`(ALIVE/DEAD)와 `is_final` 컬럼을 포함해 따로 저장됩니다.
+- 완료되지 않은 세대의 중간 결과는 CSV 파일(전체·세대별 모두)에 기록하지 않습니다. `P` 키 스냅샷은 `in_progress/` 폴더에 `status`(ALIVE/DEAD)와 `is_final` 컬럼을 포함해 따로 저장됩니다.
 - 이미 저장된 세대 번호는 다시 기록하지 않습니다.
 - 프로그램을 종료해도 이미 저장된 세대는 그대로 남습니다. 종료 시점에 진행 중이던 세대는 기록되지 않습니다.
 - 새로운 실행은 별도 `run_id` 디렉터리에 저장해 이전 결과를 덮어쓰지 않습니다.
@@ -410,7 +410,7 @@ run_id,individual_id,generation,piece_seed,pieces_placed,appear_T,appear_S,appea
   - 시각은 `yyyy-MM-dd HH:mm:ss` (MySQL `DATETIME` 형식, 실행 PC의 로컬 시각)
 
 - 저장 직전 참조 무결성을 검사합니다(개체 ID 중복, 세대 번호, 부모가 직전 세대의 실제 개체인지, 가문 승계 규칙, 유전자 개수 등). 문제가 있으면 콘솔에 `[CSV][검증 경고]`로 출력합니다.
-- 용량 참고: 세대당 약 290KB(대부분 `genes.csv`)가 늘어납니다. 1,000세대면 약 290MB입니다.
+- 용량 참고: 전체 CSV만 세대당 약 290KB(대부분 `genes.csv`)이고, `by_generation/` 사본까지 합치면 세대당 약 580KB입니다. 1,000세대면 약 580MB입니다.
 
 ### 데이터 읽기 예시
 
@@ -507,19 +507,190 @@ match_id,run_id,individual_id,generation,family_id,target_strategy,final_rank,sc
 
 ---
 
-## DB 과제 5개 테이블과 CSV 대응
+## DB 설계 (5개 테이블)
 
-| 과제 테이블 | 요구 컬럼 | CSV (컬럼) |
+### ER 다이어그램
+
+```mermaid
+erDiagram
+    EXPERIMENT    ||--o{ AI_INDIVIDUAL : "진행 및 개체 육성 (1:N)"
+    AI_INDIVIDUAL ||--|| PERFORMANCE   : "학습 성과 기록 (1:1)"
+    AI_INDIVIDUAL ||--|| BLOCK_USAGE   : "블럭 사용 기록 (1:1)"
+    AI_INDIVIDUAL ||--o{ PVP_MATCH     : "경기 승리 기록 (1:N)"
+
+    EXPERIMENT {
+        varchar run_id         PK "실행 ID"
+        int     max_generation    "최대 세대 수 (0 = 무제한)"
+        bigint  block_seed        "블럭 난수 시드 (실험 전체)"
+        int     high_score        "최고 득점"
+    }
+    AI_INDIVIDUAL {
+        varchar run_id         PK, FK "실행 ID"
+        int     individual_id  PK     "개체 ID (실행마다 1부터)"
+        int     generation            "세대"
+        float   w00                   "유전자 가중치 1번째"
+        float   w28                   "... 29번째 (w00~w28)"
+    }
+    PERFORMANCE {
+        varchar run_id         PK, FK "실행 ID"
+        int     individual_id  PK, FK "개체 ID"
+        int     score                 "개체 점수"
+        int     lines_cleared         "제거한 줄 수"
+    }
+    BLOCK_USAGE {
+        varchar run_id         PK, FK "실행 ID"
+        int     individual_id  PK, FK "개체 ID"
+        bigint  piece_seed            "블럭 난수 시드 (게임별)"
+        int     pieces_placed         "블럭 배치 횟수"
+        int     appear_T              "블럭별 출현 수 T"
+        int     appear_O              "... S Z J L I O (7개)"
+    }
+    PVP_MATCH {
+        varchar  match_id      PK "경기 ID"
+        varchar  run_id        FK "실행 ID"
+        int      winner_id     FK "승자 ID"
+        int      highest_score    "최고 득점"
+        datetime started_at       "시작 시간"
+        datetime ended_at         "종료 시간"
+    }
+```
+
+### 테이블 정의
+
+| 과제 번호 | 테이블 | PK | FK | 속성 |
+|---|---|---|---|---|
+| [4] 실험 | `EXPERIMENT` | `run_id` | - | 최대 세대 수, 블럭 난수 시드(실험 전체), 최고 득점 |
+| [1] AI 개체 | `AI_INDIVIDUAL` | `(run_id, individual_id)` | `run_id` → EXPERIMENT | 세대, 유전자 `w00`~`w28` |
+| [5] 학습 성능 | `PERFORMANCE` | `(run_id, individual_id)` | 같은 키 → AI_INDIVIDUAL | 개체 점수, 제거한 줄 수 |
+| [3] 블럭 사용 기록 | `BLOCK_USAGE` | `(run_id, individual_id)` | 같은 키 → AI_INDIVIDUAL | 블럭 난수 시드(게임별), 배치 횟수, 블럭별 출현 수 7개 |
+| [2] PvP 경기 정보 | `PVP_MATCH` | `match_id` | `(run_id, winner_id)` → AI_INDIVIDUAL | 최고 득점, 시작·종료 시간 |
+
+**관계**
+
+1. **EXPERIMENT 1 : N AI_INDIVIDUAL**: 한 실험 안에서 여러 세대에 걸쳐 개체가 생성·진화합니다.
+2. **AI_INDIVIDUAL 1 : 1 PERFORMANCE**: 개체 하나가 게임 1판을 하고, 그 최종 결과를 기록합니다.
+3. **AI_INDIVIDUAL 1 : 1 BLOCK_USAGE**: 그 게임에서 사용한 블럭 기록입니다(게임별 시드 포함).
+4. **AI_INDIVIDUAL 1 : N PVP_MATCH**: 한 개체가 여러 경기에서 이길 수 있고, 이긴 적 없는 개체는 0건입니다.
+
+**설계 시 주의점**
+
+- **개체는 반드시 `(run_id, individual_id)` 복합키로 식별합니다.** `individual_id`는 실행마다 1부터 다시 시작하므로 ID만 PK로 쓰면 두 번째 실험을 넣을 때 PK가 중복됩니다. 개체를 참조하는 모든 FK도 같은 두 컬럼입니다.
+- **블럭 사용 기록은 시드가 아니라 게임(개체) 단위입니다.** 배치 횟수와 출현 수는 시드만으로 정해지지 않고 AI가 얼마나 버티는지에 따라 달라집니다. 그래서 같은 시드라도 설정이 다르면 값이 다르고, 시드를 PK로 둘 수 없습니다. 같은 시드끼리 비교하려면 `EXPERIMENT.block_seed`로 묶습니다.
+- `EXPERIMENT.block_seed`(실험 전체 시드)와 `BLOCK_USAGE.piece_seed`(그 실험 시드에서 게임마다 계산된 시드)는 뜻이 다릅니다.
+- 유전자(29개)와 블럭별 출현 수(7개)는 한 칸에 이어 붙이지 않고 컬럼으로 나눴습니다(1정규형). 개수가 고정이라 가능합니다.
+- 중복을 없앴습니다: 세대는 `AI_INDIVIDUAL`에만, 배치 블럭 수는 `BLOCK_USAGE`에만 둡니다(학습 성능 조회 시 JOIN).
+- `EXPERIMENT.high_score`는 `MAX(PERFORMANCE.score)`로도 구할 수 있는 값입니다. 실험 목록을 빠르게 조회하려고 일부러 저장한 값이며, CSV에 기록된 값과 실제 최대값이 일치합니다.
+- 게임별 시드는 int 범위를 넘으므로 `BIGINT`, 경기 ID는 `PVP_20261112_082702_A6D96F10` 형식이므로 `VARCHAR`입니다.
+
+### MySQL DDL
+
+```sql
+CREATE TABLE EXPERIMENT (
+  run_id          VARCHAR(64) PRIMARY KEY,
+  max_generation  INT         NOT NULL,
+  block_seed      BIGINT      NOT NULL,
+  high_score      INT         NULL          -- 저장된 세대가 없으면 NULL
+);
+
+CREATE TABLE AI_INDIVIDUAL (
+  run_id         VARCHAR(64),
+  individual_id  INT,
+  generation     INT NOT NULL,
+  w00 FLOAT NOT NULL, w01 FLOAT NOT NULL, w02 FLOAT NOT NULL, w03 FLOAT NOT NULL, w04 FLOAT NOT NULL,
+  w05 FLOAT NOT NULL, w06 FLOAT NOT NULL, w07 FLOAT NOT NULL, w08 FLOAT NOT NULL, w09 FLOAT NOT NULL,
+  w10 FLOAT NOT NULL, w11 FLOAT NOT NULL, w12 FLOAT NOT NULL, w13 FLOAT NOT NULL, w14 FLOAT NOT NULL,
+  w15 FLOAT NOT NULL, w16 FLOAT NOT NULL, w17 FLOAT NOT NULL, w18 FLOAT NOT NULL, w19 FLOAT NOT NULL,
+  w20 FLOAT NOT NULL, w21 FLOAT NOT NULL, w22 FLOAT NOT NULL, w23 FLOAT NOT NULL, w24 FLOAT NOT NULL,
+  w25 FLOAT NOT NULL, w26 FLOAT NOT NULL, w27 FLOAT NOT NULL, w28 FLOAT NOT NULL,
+  PRIMARY KEY (run_id, individual_id),
+  FOREIGN KEY (run_id) REFERENCES EXPERIMENT(run_id)
+);
+
+CREATE TABLE PERFORMANCE (
+  run_id         VARCHAR(64),
+  individual_id  INT,
+  score          INT NOT NULL,
+  lines_cleared  INT NOT NULL,
+  PRIMARY KEY (run_id, individual_id),
+  FOREIGN KEY (run_id, individual_id) REFERENCES AI_INDIVIDUAL(run_id, individual_id)
+);
+
+CREATE TABLE BLOCK_USAGE (
+  run_id         VARCHAR(64),
+  individual_id  INT,
+  piece_seed     BIGINT NOT NULL,
+  pieces_placed  INT    NOT NULL,
+  appear_T INT NOT NULL, appear_S INT NOT NULL, appear_Z INT NOT NULL, appear_J INT NOT NULL,
+  appear_L INT NOT NULL, appear_I INT NOT NULL, appear_O INT NOT NULL,
+  PRIMARY KEY (run_id, individual_id),
+  FOREIGN KEY (run_id, individual_id) REFERENCES AI_INDIVIDUAL(run_id, individual_id)
+);
+
+CREATE TABLE PVP_MATCH (
+  match_id       VARCHAR(40) PRIMARY KEY,
+  run_id         VARCHAR(64) NOT NULL,
+  winner_id      INT         NOT NULL,
+  highest_score  INT         NOT NULL,
+  started_at     DATETIME    NOT NULL,
+  ended_at       DATETIME    NOT NULL,
+  FOREIGN KEY (run_id, winner_id) REFERENCES AI_INDIVIDUAL(run_id, individual_id)
+);
+```
+
+### CSV → 테이블 적재
+
+| 테이블 | CSV (`exports/<run_id>/`) | 컬럼 대응 |
 |---|---|---|
-| ① AI 개체 | ID, 유전자, 세대 | `individuals.csv` (`run_id`, `individual_id`, `generation`, `family_id`, `birth_type`) + `genes.csv` (개체당 29행 가중치) |
-| ② PvP 경기 정보 | 경기 ID, 최고 득점, 시간, 승자 ID | `pvp_matches.csv` (`match_id`, `highest_score`, `started_at`/`ended_at`/`duration_steps`, `winner_individual_id`) |
-| ③ 블록 사용 기록 | 블록 배치 횟수, 블록별 출현 수, 블록 난수 시드 | `block_usage.csv` (`pieces_placed`, `appear_T`~`appear_O`, `piece_seed`) |
-| ④ 실험 | 실행 ID, 최대 세대 수, 블록 난수 시드, 최고 득점 | `experiments.csv` (`run_id`, `max_generations`, `block_seed`, `best_score`) |
-| ⑤ 학습 성능 | 개체 점수, 세대, 제거한 줄 수, 배치한 블록 수, ID | `game_results.csv` (`score`, `generation`, `lines`, `pieces_placed`, `individual_id`) |
+| `EXPERIMENT` | `experiments.csv` | `run_id`, `max_generations` → `max_generation`, `block_seed`, `best_score` → `high_score` (빈 칸 → NULL) |
+| `AI_INDIVIDUAL` | `individuals.csv` + `genes.csv` | `run_id`, `individual_id`, `generation` + `genes.csv`의 `gene_index` 0~28을 `w00`~`w28`로 펼침 |
+| `PERFORMANCE` | `game_results.csv` | `run_id`, `individual_id`, `score`, `lines` → `lines_cleared` |
+| `BLOCK_USAGE` | `block_usage.csv` | 그대로 (`appear_total`, `generation` 컬럼은 사용하지 않음) |
+| `PVP_MATCH` | `pvp/pvp_matches.csv` | `match_id`, `run_id`, `winner_individual_id` → `winner_id`, `highest_score`, `started_at`, `ended_at` |
 
-- "유전자"는 개체 테이블에 한 컬럼으로 넣는 대신 `genes.csv`처럼 **개체 1 : 가중치 N** 테이블로 분리해 두었습니다(정규화). 한 컬럼이 꼭 필요하면 SQL에서 `GROUP_CONCAT(weight ORDER BY gene_index)`로 만들 수 있습니다.
-- 나머지 CSV(`generations`, `families`, `parentage`, `pvp_participants`)는 5개 테이블에 없는 보조 데이터입니다. 경기 참가자·순위 같은 질의를 하려면 `pvp_participants`를 추가 테이블로 쓰면 됩니다.
-- 모든 개체 참조는 `(run_id, individual_id)` 복합키입니다. 여러 팀원의 결과를 합칠 때도 그대로 유지됩니다.
+**적재 순서**: FK 때문에 `EXPERIMENT` → `AI_INDIVIDUAL` → `PERFORMANCE`, `BLOCK_USAGE`, `PVP_MATCH` 순서로 넣습니다.
+
+**유전자 펼치기** (`genes.csv`는 개체당 29행 → `AI_INDIVIDUAL`은 개체당 1행):
+
+```python
+import pandas as pd
+
+d = "exports/<run_id>/"
+ind = pd.read_csv(d + "individuals.csv")
+genes = pd.read_csv(d + "genes.csv")
+w = genes.pivot(index=["run_id", "individual_id"], columns="gene_index", values="weight")
+w.columns = [f"w{i:02d}" for i in w.columns]               # 0 → w00 ... 28 → w28
+ai_individual = ind[["run_id", "individual_id", "generation"]].merge(w.reset_index(), on=["run_id", "individual_id"])
+```
+
+**주의**
+
+- **v2.1.0 이상으로 실행한 결과만 이 구조에 넣을 수 있습니다.** v2.0.0 실행 폴더(`experiments.csv`에 `block_seed`가 없고 `block_usage.csv`가 없는 폴더)는 `EXPERIMENT.block_seed`, `BLOCK_USAGE`를 채울 수 없습니다. `experiments.csv`의 `program_version`으로 구분하세요.
+- 여러 팀원·여러 실행 폴더를 같은 테이블에 합쳐 넣어도 됩니다(복합키라 충돌 없음).
+- `status = RUNNING`인 실험은 강제 종료되었거나 아직 진행 중인 것입니다. 저장된 세대까지만 데이터가 있습니다.
+- 특정 세대만 넣으려면 전체 CSV 대신 `by_generation/gen_NNNN/`의 파일을 쓰면 됩니다(형식 동일).
+- 나머지 CSV(`generations`, `families`, `parentage`, `pvp_participants`)는 5개 테이블에 없는 보조 데이터입니다. 가문·계보·경기 참가자 분석이 필요해지면 테이블로 추가할 수 있습니다.
+
+**검증 결과** (2026-11-12): 2세대까지 실행한 결과 + PvP 1경기와 실제 실행 1개를 위 구조(SQLite, 외래키 검사 ON)에 함께 적재했습니다. 개체 600행, PK 충돌 0건, FK 위반 0건이었고, `high_score`는 `MAX(score)`와 일치했으며, PvP 승자가 개체·성능 테이블과 JOIN되는 것을 확인했습니다.
+
+**예시 질의**
+
+```sql
+-- 세대별 평균 점수와 평균 배치 블럭 수
+SELECT i.run_id, i.generation, AVG(p.score), AVG(b.pieces_placed)
+FROM AI_INDIVIDUAL i
+JOIN PERFORMANCE p ON p.run_id = i.run_id AND p.individual_id = i.individual_id
+JOIN BLOCK_USAGE b ON b.run_id = i.run_id AND b.individual_id = i.individual_id
+GROUP BY i.run_id, i.generation;
+
+-- PvP 승자의 학습 점수 (솔로 실력 vs 대전 승리)
+SELECT m.match_id, m.winner_id, i.generation, p.score AS solo_score, m.highest_score
+FROM PVP_MATCH m
+JOIN AI_INDIVIDUAL i ON i.run_id = m.run_id AND i.individual_id = m.winner_id
+JOIN PERFORMANCE p ON p.run_id = i.run_id AND p.individual_id = i.individual_id;
+
+-- 같은 시드로 돌린 실험끼리 비교
+SELECT block_seed, run_id, max_generation, high_score FROM EXPERIMENT ORDER BY block_seed, high_score DESC;
+```
 
 ## 변경 이력
 
