@@ -37,6 +37,14 @@ class Tetris {
     int triple_clears = 0;       // 3줄 클리어
     int pieces_placed = 0;       // 놓은 블록 수
     
+    // 낙하 속도 조절 변수 (줄을 지울 때마다 1프레임씩 빨라짐)
+    final int INITIAL_DROP_INTERVAL = 60;  // 시작 낙하 주기 (60프레임)
+    final int MIN_DROP_INTERVAL = 1;       // 최소 낙하 주기 (1프레임 미만으로 떨어지지 않도록 보호)
+
+    int get_drop_interval() {
+        return max(MIN_DROP_INTERVAL, INITIAL_DROP_INTERVAL - lines);
+    }
+    
     boolean last_clear_tetris = false;
     
     Tetris() {
@@ -70,7 +78,7 @@ class Tetris {
             game_step++;
             game_map_copy = game_map.copy();
             game_map_copy.insert_all_at(tet_pos.x, tet_pos.y, current_tet); 
-            if(game_step >= 60) {
+            if(game_step >= get_drop_interval()) {
                game_step = 0; 
                tet_pos.y++;
                
@@ -179,7 +187,7 @@ class Tetris {
               test_tet = rotate_tet(current_tet);
               break;
             case 1:
-              game_step = 60;
+              game_step = get_drop_interval();
               break;
             case 2:
               new_pos.x--;

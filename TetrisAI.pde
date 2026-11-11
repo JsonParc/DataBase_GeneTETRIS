@@ -197,7 +197,7 @@ void show() {
         textSize(18);
         if(HUMAN_PLAY) {
           text("Score: "+player.score, 500,60);
-          text("Lines: "+player.lines, 500,85);
+          text("Lines: "+player.lines + "   Speed: " + player.get_drop_interval() + "f", 500,85);
           text("Tetris: "+player.tetris, 500,110);
           text("Highscore : "+highscore, 500,135);
         } else {
@@ -234,7 +234,7 @@ void show_single_view_info() {
     text("Founder: " + founderName(rep.species_id), x, y += lh);
     text("Family: " + familyName(rep.species_id), x, y += lh);
     text("Current Score: " + rep.score, x, y += lh);
-    text("Lines: " + rep.lines + "   Tetris: " + rep.tetris, x, y += lh);
+    text("Lines: " + rep.lines + "   Tetris: " + rep.tetris + "   Speed: " + rep.get_drop_interval() + "f", x, y += lh);
     text("Generation Best Score: " + gen_best.score, x, y += lh);
     text("All-Time High Score: " + allTimeHighScore, x, y += lh);
     text("Mutation Rate : " + mutation_rate*100 + "%", x, y += lh);
